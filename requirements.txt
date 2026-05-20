@@ -1,0 +1,19 @@
+# SQL AI Summarizer — Python dependencies
+# Install with: pip install -r requirements.txt
+
+# Web framework
+fastapi==0.115.5
+uvicorn==0.32.1
+
+# MSSQL connection
+pyodbc==5.2.0
+
+# AI providers (all optional — install only what you use)
+anthropic==0.40.0     # Claude (Anthropic)
+openai==1.57.0        # OpenAI (also works for Groq & OpenRouter via compatible API)
+
+# HTTP requests (for Ollama local AI)
+requests==2.32.3
+
+# Serve static files
+aiofiles==24.1.0

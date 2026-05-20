@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>SQL AI Chat — ສົນທະນາກັບຂໍ້ມູນ SQL</title>
+<style>
+/* ── Reset ───────────────────────────────────────────── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d0f1a;
+  --surface:#161827;
+  --card:#1e2235;
+  --border:#272c45;
+  --accent:#6c63ff;
+  --accent2:#00d4aa;
+  --warn:#f59e0b;
+  --danger:#ef4444;
+  --success:#10b981;
+  --user-bubble:#6c63ff;
+  --ai-bubble:#1e2235;
+  --text:#e2e8f0;
+  --muted:#8892b0;
+  --radius:12px;
+}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+
+/* ── Layout ──────────────────────────────────────────── */
+.app{display:flex;height:100vh;overflow:hidden}
+.sidebar{width:260px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
+.chat-area{flex:1;display:flex;flex-direction:column;overflow:hidden}
+
+/* ── Sidebar ─────────────────────────────────────────── */
+.sidebar-top{padding:16px;border-bottom:1px solid var(--border)}
+.logo{font-size:17px;font-weight:700;color:var(--accent);display:flex;align-items:center;gap:8px;margin-bottom:2px}
+.logo-sub{font-size:11px;color:var(--muted)}
+.conn-btn{margin-top:12px;width:100%;padding:9px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px;transition:.2s}
+.conn-btn:hover{border-color:var(--accent)}
+.conn-dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0}
+.conn-dot.ok{background:var(--success);box-shadow:0 0 6px var(--success)}
+.conn-dot.err{background:var(--danger)}
+
+.sidebar-section{padding:10px 12px 4px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+.sidebar-scroll{flex:1;overflow-y:auto;padding:4px 8px 12px}
+.sidebar-scroll::-webkit-scrollbar{width:3px}
+.sidebar-scroll::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+.table-item{padding:6px 10px;border-radius:6px;cursor:pointer;color:var(--muted);font-size:12px;display:flex;align-items:center;gap:6px;transition:.15s;white-space:nowrap;overflow:hidden}
+.table-item:hover{background:var(--card);color:var(--text)}
+.table-item span{overflow:hidden;text-overflow:ellipsis}
+
+.sidebar-bottom{padding:12px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:6px}
+.ai-row{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.ai-dot{width:7px;height:7px;border-radius:50%;background:var(--muted)}
+.ai-dot.ok{background:var(--success);box-shadow:0 0 5px var(--success)}
+.new-chat-btn{padding:8px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:12px;cursor:pointer;text-align:center;transition:.15s}
+.new-chat-btn:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ── Chat header ─────────────────────────────────────── */
+.chat-header{padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;background:var(--surface)}
+.chat-header h2{font-size:15px;font-weight:600}
+.chat-header-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+select.hdr-select{background:var(--card);border:1px solid var(--border);border-radius:7px;padding:5px 10px;color:var(--text);font-size:12px;cursor:pointer;outline:none}
+select.hdr-select:focus{border-color:var(--accent)}
+
+/* ── Messages ────────────────────────────────────────── */
+.messages{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:16px}
+.messages::-webkit-scrollbar{width:5px}
+.messages::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+.msg-row{display:flex;gap:10px;align-items:flex-start;max-width:820px}
+.msg-row.user{flex-direction:row-reverse;margin-left:auto}
+.msg-row.assistant{margin-right:auto}
+
+.avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;margin-top:2px}
+.avatar.user{background:var(--accent)}
+.avatar.ai{background:var(--card);border:1px solid var(--border)}
+
+.bubble{display:flex;flex-direction:column;gap:8px;max-width:680px}
+.bubble-text{padding:12px 16px;border-radius:var(--radius);line-height:1.65;font-size:14px}
+.msg-row.user .bubble-text{background:var(--user-bubble);color:#fff;border-radius:var(--radius) var(--radius) 4px var(--radius)}
+.msg-row.assistant .bubble-text{background:var(--ai-bubble);border:1px solid var(--border);border-radius:4px var(--radius) var(--radius) var(--radius)}
+
+/* SQL accordion */
+.sql-accordion{background:var(--bg);border:1px solid var(--border);border-radius:8px;overflow:hidden;font-size:12px}
+.sql-toggle{width:100%;padding:8px 12px;background:none;border:none;color:var(--muted);text-align:left;cursor:pointer;display:flex;align-items:center;gap:6px;font-size:12px;transition:.15s}
+.sql-toggle:hover{color:var(--text);background:rgba(255,255,255,.03)}
+.sql-body{display:none;padding:10px 12px;border-top:1px solid var(--border)}
+.sql-body.open{display:block}
+.sql-body pre{font-family:'Cascadia Code','Fira Code','Consolas',monospace;font-size:12px;color:var(--accent2);white-space:pre-wrap;word-break:break-word}
+.copy-sql{float:right;padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:11px;cursor:pointer;transition:.15s}
+.copy-sql:hover{border-color:var(--accent2);color:var(--accent2)}
+
+/* Mini data table */
+.mini-table-wrap{overflow-x:auto;border-radius:8px;border:1px solid var(--border);max-height:200px;overflow-y:auto;font-size:12px}
+.mini-table-wrap::-webkit-scrollbar{height:4px;width:4px}
+.mini-table-wrap::-webkit-scrollbar-thumb{background:var(--border)}
+.mini-table{width:max-content;min-width:100%;border-collapse:collapse}
+.mini-table th{background:var(--bg);color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;padding:7px 12px;text-align:left;position:sticky;top:0;white-space:nowrap;border-bottom:1px solid var(--border)}
+.mini-table td{padding:6px 12px;border-bottom:1px solid rgba(39,44,69,.5);white-space:nowrap;color:var(--text)}
+.mini-table tr:last-child td{border-bottom:none}
+.mini-table tr:hover td{background:rgba(108,99,255,.05)}
+.td-null{color:var(--muted);font-style:italic}
+.td-num{color:var(--accent2);font-variant-numeric:tabular-nums}
+
+.msg-meta{font-size:11px;color:var(--muted);display:flex;align-items:center;gap:8px;padding:0 4px}
+.msg-meta .ai-badge{padding:2px 7px;border-radius:10px;background:rgba(108,99,255,.15);color:var(--accent);border:1px solid rgba(108,99,255,.25);font-size:10px}
+
+/* Typing indicator */
+.typing{display:flex;gap:4px;padding:14px 16px;background:var(--ai-bubble);border:1px solid var(--border);border-radius:4px var(--radius) var(--radius) var(--radius);width:fit-content}
+.typing span{width:7px;height:7px;border-radius:50%;background:var(--muted);animation:bounce .8s infinite}
+.typing span:nth-child(2){animation-delay:.15s}
+.typing span:nth-child(3){animation-delay:.3s}
+@keyframes bounce{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-8px)}}
+
+/* Suggestions */
+.suggestions{padding:0 20px 20px;display:flex;flex-wrap:wrap;gap:8px}
+.sugg-btn{padding:8px 14px;border-radius:20px;border:1px solid var(--border);background:var(--card);color:var(--muted);font-size:12px;cursor:pointer;transition:.15s;line-height:1.3}
+.sugg-btn:hover{border-color:var(--accent);color:var(--accent);background:rgba(108,99,255,.08)}
+
+/* ── Input bar ───────────────────────────────────────── */
+.input-bar{padding:14px 20px;border-top:1px solid var(--border);background:var(--surface)}
+.input-row{display:flex;gap:10px;align-items:flex-end}
+.input-wrap{flex:1;position:relative}
+textarea#msgInput{width:100%;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 48px 12px 16px;color:var(--text);font-size:14px;font-family:inherit;resize:none;outline:none;line-height:1.5;max-height:160px;min-height:48px;transition:border-color .2s}
+textarea#msgInput:focus{border-color:var(--accent)}
+textarea#msgInput::placeholder{color:var(--muted)}
+.send-btn{width:44px;height:44px;border-radius:11px;border:none;background:var(--accent);color:#fff;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:.2s;align-self:flex-end}
+.send-btn:hover{background:#7c74ff;transform:scale(1.05)}
+.send-btn:disabled{opacity:.4;cursor:not-allowed;transform:none}
+.input-hint{font-size:11px;color:var(--muted);margin-top:6px;text-align:center}
+
+/* ── Welcome screen ──────────────────────────────────── */
+.welcome{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:40px;text-align:center}
+.welcome-icon{font-size:56px}
+.welcome h2{font-size:22px;font-weight:700;color:var(--text)}
+.welcome p{color:var(--muted);max-width:400px;line-height:1.6}
+.welcome-examples{display:flex;flex-direction:column;gap:8px;width:100%;max-width:480px}
+.ex-btn{padding:12px 18px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px;cursor:pointer;text-align:left;transition:.2s;line-height:1.4}
+.ex-btn:hover{border-color:var(--accent);background:rgba(108,99,255,.08)}
+
+/* ── Modal ───────────────────────────────────────────── */
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:100;align-items:center;justify-content:center}
+.overlay.open{display:flex}
+.modal{background:var(--card);border:1px solid var(--border);border-radius:16px;width:500px;max-width:95vw;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.modal-head{padding:20px 24px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.modal-head h3{font-size:16px;font-weight:700}
+.modal-x{background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;line-height:1}
+.modal-body{padding:20px 24px;display:flex;flex-direction:column;gap:14px;overflow-y:auto}
+.modal-body::-webkit-scrollbar{width:4px}
+.modal-body::-webkit-scrollbar-thumb{background:var(--border)}
+.modal-foot{padding:16px 24px;border-top:1px solid var(--border);display:flex;gap:10px;align-items:center;flex-shrink:0}
+.fl{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:4px}
+.fi{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:13px;outline:none}
+.fi:focus{border-color:var(--accent)}
+.fi::placeholder{color:var(--muted)}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.toggle-row{display:flex;align-items:center;justify-content:space-between}
+.toggle{position:relative;display:inline-block;width:38px;height:21px}
+.toggle input{opacity:0;width:0;height:0}
+.tslider{position:absolute;inset:0;background:var(--border);border-radius:11px;cursor:pointer;transition:.3s}
+.tslider::before{content:"";position:absolute;width:15px;height:15px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.3s}
+.toggle input:checked+.tslider{background:var(--accent)}
+.toggle input:checked+.tslider::before{transform:translateX(17px)}
+hr.div{border:none;border-top:1px solid var(--border)}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:8px;border:none;cursor:pointer;font-size:13px;font-weight:600;transition:.2s}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{background:#7c74ff}
+.btn-ghost{background:transparent;border:1px solid var(--border);color:var(--muted)}
+.btn-ghost:hover{border-color:var(--accent);color:var(--accent)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.test-out{font-size:12px;flex:1}
+.test-out.ok{color:var(--success)}
+.test-out.err{color:var(--danger)}
+
+/* ── Toast ───────────────────────────────────────────── */
+.toasts{position:fixed;top:14px;right:14px;z-index:200;display:flex;flex-direction:column;gap:6px}
+.toast{padding:10px 16px;border-radius:8px;font-size:13px;border:1px solid;animation:fadeIn .2s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+.toast.success{background:rgba(16,185,129,.15);border-color:var(--success);color:var(--success)}
+.toast.error{background:rgba(239,68,68,.15);border-color:var(--danger);color:var(--danger)}
+.toast.info{background:rgba(108,99,255,.15);border-color:var(--accent);color:var(--accent)}
+.toast.warn{background:rgba(245,158,11,.15);border-color:var(--warn);color:var(--warn)}
+
+/* Read-only badge */
+.ro-badge{font-size:10px;padding:3px 8px;border-radius:6px;background:rgba(16,185,129,.1);color:var(--success);border:1px solid rgba(16,185,129,.3);font-weight:600}
+
+/* Provider cards */
+.provider-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.provider-header{display:flex;align-items:center;gap:8px;padding:12px 14px;cursor:pointer;font-size:13px;user-select:none;transition:.15s}
+.provider-header:hover{background:rgba(255,255,255,.03)}
+.provider-arrow{margin-left:4px;font-size:11px;color:var(--muted);transition:.2s}
+.provider-body{display:none;padding:0 14px 14px;flex-direction:column;gap:8px}
+.provider-body.open{display:flex}
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-top">
+      <div class="logo">🤖 SQL AI Chat</div>
+      <div class="logo-sub">ສົນທະນາກັບຂໍ້ມູນ SQL ຂອງທ່ານ</div>
+      <button class="conn-btn" onclick="openModal()">
+        <div class="conn-dot" id="connDot"></div>
+        <span id="connLabel">Connect to Database</span>
+      </button>
+    </div>
+
+    <div class="sidebar-section">Tables <span id="tableCount" style="font-weight:400;text-transform:none;letter-spacing:0"></span></div>
+    <div class="sidebar-scroll" id="tableList">
+      <div style="padding:20px 8px;text-align:center;color:var(--muted);font-size:12px;">Connect first to see tables</div>
+    </div>
+
+    <div class="sidebar-bottom">
+      <div class="ai-row">
+        <div class="ai-dot" id="ollamaDot"></div>
+        <span id="ollamaLabel">Ollama — checking…</span>
+      </div>
+      <button class="new-chat-btn" onclick="newChat()">+ New Conversation</button>
+    </div>
+  </div>
+
+  <!-- Chat -->
+  <div class="chat-area">
+
+    <!-- Header -->
+    <div class="chat-header">
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <h2 id="chatTitle">SQL AI Chat</h2>
+        <span style="font-size:11px;color:var(--muted)" id="chatSub">Connect to your database to start</span>
+      </div>
+      <div class="chat-header-right">
+        <span class="ro-badge">🔒 Read-Only</span>
+        <select class="hdr-select" id="langSelect">
+          <option value="en">🇬🇧 English</option>
+          <option value="lo">🇱🇦 ລາວ</option>
+          <option value="both">🌐 Both</option>
+        </select>
+        <select class="hdr-select" id="modeSelect">
+          <option value="auto">⚡ Auto AI</option>
+          <option value="local">🖥️ Local Only</option>
+          <option value="claude">☁️ Claude Only</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Messages / Welcome -->
+    <div id="welcomeScreen" class="welcome">
+      <div class="welcome-icon">💬</div>
+      <h2>Ask anything about your data</h2>
+      <p>Connect to your MSSQL database, then ask questions in plain language — English or ພາສາລາວ. I'll write the SQL, run it, and explain the results.</p>
+      <div class="welcome-examples" id="welcomeExamples">
+        <button class="ex-btn" onclick="useExample(this)">💰 What are the top 10 highest spending transactions?</button>
+        <button class="ex-btn" onclick="useExample(this)">📅 ຂ້ອຍໃຊ້ຈ່າຍຫຼາຍປານໃດໃນເດືອນນີ້? (How much did I spend this month?)</button>
+        <button class="ex-btn" onclick="useExample(this)">📊 Show me a summary of sales by category this year</button>
+        <button class="ex-btn" onclick="useExample(this)">📋 What tables are in this database?</button>
+      </div>
+    </div>
+    <div id="messagesWrap" style="display:none;flex:1;display:none;flex-direction:column;overflow:hidden">
+      <div class="messages" id="messages"></div>
+    </div>
+
+    <!-- Suggestions (shown after first reply) -->
+    <div class="suggestions" id="suggestions" style="display:none"></div>
+
+    <!-- Input -->
+    <div class="input-bar">
+      <div class="input-row">
+        <div class="input-wrap">
+          <textarea id="msgInput" placeholder="Ask about your data in English or ພາສາລາວ…" rows="1"></textarea>
+        </div>
+        <button class="send-btn" id="sendBtn" onclick="sendMessage()" title="Send (Ctrl+Enter)">➤</button>
+      </div>
+      <div class="input-hint">Ctrl+Enter to send · Read-only mode — your database is never modified</div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div class="toasts" id="toasts"></div>
+
+<!-- Connection Modal -->
+<div class="overlay" id="connOverlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>🔌 Database Connection</h3>
+      <button class="modal-x" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div>
+        <label class="fl">Server</label>
+        <input class="fi" id="cfgServer" placeholder="localhost or 192.168.x.x\SQLEXPRESS"/>
+      </div>
+      <div class="form-row">
+        <div>
+          <label class="fl">Database</label>
+          <input class="fi" id="cfgDb" placeholder="MyDatabase"/>
+        </div>
+        <div>
+          <label class="fl">Port</label>
+          <input class="fi" id="cfgPort" type="number" value="1433"/>
+        </div>
+      </div>
+      <div class="toggle-row">
+        <label class="fl" style="margin:0">Windows Authentication</label>
+        <label class="toggle"><input type="checkbox" id="cfgWin" onchange="toggleWinAuth()"/><span class="tslider"></span></label>
+      </div>
+      <div id="sqlAuthSection">
+        <div class="form-row">
+          <div>
+            <label class="fl">Username</label>
+            <input class="fi" id="cfgUser" placeholder="sa"/>
+          </div>
+          <div>
+            <label class="fl">Password</label>
+            <input class="fi" id="cfgPass" type="password" placeholder="••••••••"/>
+          </div>
+        </div>
+      </div>
+      <hr class="div"/>
+      <div>
+        <label class="fl">Claude API Key <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted)">(for Lao language & complex questions)</span></label>
+        <input class="fi" id="cfgClaude" type="password" placeholder="sk-ant-…"/>
+      </div>
+      <div class="form-row">
+        <div>
+          <label class="fl">Ollama URL <span style="font-weight:400;text-transform:none">(free local AI)</span></label>
+          <input class="fi" id="cfgOllamaUrl" value="http://localhost:11434"/>
+        </div>
+        <div>
+          <label class="fl">Ollama Model</label>
+          <input class="fi" id="cfgOllamaModel" value="llama3.2" list="modelList"/>
+          <datalist id="modelList">
+            <option value="llama3.2"/><option value="llama3.1"/>
+            <option value="mistral"/><option value="qwen2.5"/>
+          </datalist>
+        </div>
+      </div>
+      <hr class="div"/>
+
+      <!-- AI Providers -->
+      <div style="font-size:13px;font-weight:700;color:var(--text)">🤖 AI Providers</div>
+      <div style="font-size:12px;color:var(--muted)">Add keys for the providers you want. You can use multiple — the app picks the best one automatically, or you can force a specific one in the chat header.</div>
+
+      <!-- Ollama (local) -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span>🖥️</span>
+          <strong style="font-size:13px">Ollama (Local — Free)</strong>
+          <span style="margin-left:auto;font-size:11px;color:var(--muted)">No API key needed</span>
+        </div>
+        <div class="form-row">
+          <div>
+            <label class="fl">Ollama URL</label>
+            <input class="fi" id="cfgOllamaUrl" value="http://localhost:11434"/>
+          </div>
+          <div>
+            <label class="fl">Model</label>
+            <input class="fi" id="cfgOllamaModel" value="llama3.2" list="modelList"/>
+            <datalist id="modelList">
+              <option value="llama3.2"/><option value="llama3.1"/>
+              <option value="mistral"/><option value="qwen2.5"/><option value="phi3"/>
+            </datalist>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <button class="btn btn-ghost" style="padding:6px 12px;font-size:12px" onclick="testOllama()">🔌 Test Ollama</button>
+          <span id="ollamaTestOut" style="font-size:12px;color:var(--muted)"></span>
+        </div>
+      </div>
+
+      <!-- Claude -->
+      <div class="provider-card" id="card-claude">
+        <div class="provider-header" onclick="toggleProvider('claude')">
+          <span>⚡</span>
+          <strong>Anthropic Claude</strong>
+          <span style="margin-left:auto;font-size:11px;color:var(--muted)">Recommended for Lao language</span>
+          <span class="provider-arrow" id="arrow-claude">▶</span>
+        </div>
+        <div class="provider-body" id="body-claude">
+          <label class="fl">API Key</label>
+          <div style="display:flex;gap:8px">
+            <input class="fi" id="cfgClaude" type="password" placeholder="sk-ant-…" style="flex:1"/>
+            <button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;white-space:nowrap" onclick="testProvider('claude')">Test &amp; Load Models</button>
+          </div>
+          <div id="out-claude" style="font-size:12px;color:var(--muted);margin-top:4px"></div>
+          <div id="models-claude" style="display:none;margin-top:8px">
+            <label class="fl">Model</label>
+            <select class="fi" id="model-claude"></select>
+          </div>
+        </div>
+      </div>
+
+      <!-- OpenAI -->
+      <div class="provider-card" id="card-openai">
+        <div class="provider-header" onclick="toggleProvider('openai')">
+          <span>🟢</span>
+          <strong>OpenAI (ChatGPT)</strong>
+          <span style="margin-left:auto;font-size:11px;color:var(--muted)">GPT-4o, GPT-4o Mini</span>
+          <span class="provider-arrow" id="arrow-openai">▶</span>
+        </div>
+        <div class="provider-body" id="body-openai">
+          <label class="fl">API Key</label>
+          <div style="display:flex;gap:8px">
+            <input class="fi" id="cfgOpenAI" type="password" placeholder="sk-…" style="flex:1"/>
+            <button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;white-space:nowrap" onclick="testProvider('openai')">Test &amp; Load Models</button>
+          </div>
+          <div id="out-openai" style="font-size:12px;color:var(--muted);margin-top:4px"></div>
+          <div id="models-openai" style="display:none;margin-top:8px">
+            <label class="fl">Model</label>
+            <select class="fi" id="model-openai"></select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Groq -->
+      <div class="provider-card" id="card-groq">
+        <div class="provider-header" onclick="toggleProvider('groq')">
+          <span>⚡</span>
+          <strong>Groq (Very Fast &amp; Free Tier)</strong>
+          <span style="margin-left:auto;font-size:11px;color:var(--muted)">Llama, Mixtral</span>
+          <span class="provider-arrow" id="arrow-groq">▶</span>
+        </div>
+        <div class="provider-body" id="body-groq">
+          <label class="fl">API Key</label>
+          <div style="display:flex;gap:8px">
+            <input class="fi" id="cfgGroq" type="password" placeholder="gsk_…" style="flex:1"/>
+            <button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;white-space:nowrap" onclick="testProvider('groq')">Test &amp; Load Models</button>
+          </div>
+          <div id="out-groq" style="font-size:12px;color:var(--muted);margin-top:4px"></div>
+          <div id="models-groq" style="display:none;margin-top:8px">
+            <label class="fl">Model</label>
+            <select class="fi" id="model-groq"></select>
+          </div>
+        </div>
+      </div>
+
+      <!-- OpenRouter -->
+      <div class="provider-card" id="card-openrouter">
+        <div class="provider-header" onclick="toggleProvider('openrouter')">
+          <span>🌐</span>
+          <strong>OpenRouter (100+ Models)</strong>
+          <span style="margin-left:auto;font-size:11px;color:var(--muted)">Free &amp; paid models</span>
+          <span class="provider-arrow" id="arrow-openrouter">▶</span>
+        </div>
+        <div class="provider-body" id="body-openrouter">
+          <label class="fl">API Key</label>
+          <div style="display:flex;gap:8px">
+            <input class="fi" id="cfgOpenRouter" type="password" placeholder="sk-or-…" style="flex:1"/>
+            <button class="btn btn-ghost" style="padding:6px 12px;font-size:12px;white-space:nowrap" onclick="testProvider('openrouter')">Test &amp; Load Models</button>
+          </div>
+          <div id="out-openrouter" style="font-size:12px;color:var(--muted);margin-top:4px"></div>
+          <div id="models-openrouter" style="display:none;margin-top:8px">
+            <label class="fl">Model</label>
+            <select class="fi" id="model-openrouter"></select>
+          </div>
+        </div>
+      </div>
+
+      <div style="background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--success)">
+        🔒 <strong>Read-only mode:</strong> This app only runs SELECT queries. Your database is never modified. If any data needs to be saved (like chat history), it stays in a local file on this computer only.
+      </div>
+    </div>
+    <div class="modal-foot">
+      <div class="test-out" id="testOut"></div>
+      <button class="btn btn-ghost" onclick="testConn()" id="testBtn">Test</button>
+      <button class="btn btn-primary" onclick="saveConn()">Save & Connect</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+function loadLS(k, def) { try { return JSON.parse(localStorage.getItem(k)) ?? def; } catch { return def; } }
+
+const S = {
+  config:       loadLS("dc", null),
+  connected:    false,
+  history:      [],
+  tables:       [],
+  // Ollama
+  ollamaUrl:    localStorage.getItem("ou") || "http://localhost:11434",
+  ollamaModel:  localStorage.getItem("om") || "llama3.2",
+  // External providers — keys + chosen models
+  providers: loadLS("providers", {
+    claude:      { key: "", model: "claude-haiku-4-5-20251001" },
+    openai:      { key: "", model: "gpt-4o-mini" },
+    groq:        { key: "", model: "llama-3.1-8b-instant" },
+    openrouter:  { key: "", model: "meta-llama/llama-3.1-8b-instruct:free" },
+  }),
+};
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+function toast(msg, type="info", ms=3500) {
+  const c = document.getElementById("toasts");
+  const t = document.createElement("div");
+  t.className = `toast ${type}`;
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(()=>{ t.style.opacity="0"; t.style.transition=".3s"; setTimeout(()=>t.remove(), 300); }, ms);
+}
+
+// ── Modal ──────────────────────────────────────────────────────────────────
+// ── Modal open / close ─────────────────────────────────────────────────────
+function openModal() {
+  if (S.config) {
+    document.getElementById("cfgServer").value  = S.config.server || "";
+    document.getElementById("cfgDb").value      = S.config.database || "";
+    document.getElementById("cfgPort").value    = S.config.port || 1433;
+    document.getElementById("cfgUser").value    = S.config.username || "";
+    document.getElementById("cfgWin").checked   = S.config.use_windows_auth || false;
+    toggleWinAuth();
+  }
+  // Ollama
+  document.getElementById("cfgOllamaUrl").value   = S.ollamaUrl;
+  document.getElementById("cfgOllamaModel").value = S.ollamaModel;
+  // Provider keys
+  const p = S.providers;
+  document.getElementById("cfgClaude").value     = p.claude.key;
+  document.getElementById("cfgOpenAI").value     = p.openai.key;
+  document.getElementById("cfgGroq").value       = p.groq.key;
+  document.getElementById("cfgOpenRouter").value = p.openrouter.key;
+  // Restore saved models into selects if they exist
+  ["claude","openai","groq","openrouter"].forEach(name => {
+    const sel = document.getElementById(`model-${name}`);
+    if (sel && sel.options.length > 0) {
+      sel.value = p[name].model;
+    }
+  });
+  document.getElementById("connOverlay").classList.add("open");
+}
+
+function closeModal() { document.getElementById("connOverlay").classList.remove("open"); }
+
+function toggleWinAuth() {
+  document.getElementById("sqlAuthSection").style.display =
+    document.getElementById("cfgWin").checked ? "none" : "block";
+}
+
+function getConfig() {
+  return {
+    server:           document.getElementById("cfgServer").value.trim(),
+    database:         document.getElementById("cfgDb").value.trim(),
+    port:             parseInt(document.getElementById("cfgPort").value) || 1433,
+    username:         document.getElementById("cfgUser").value.trim(),
+    password:         document.getElementById("cfgPass").value,
+    use_windows_auth: document.getElementById("cfgWin").checked,
+  };
+}
+
+// ── DB test ────────────────────────────────────────────────────────────────
+async function testConn() {
+  const cfg = getConfig();
+  if (!cfg.server || !cfg.database) { toast("Server and Database required","warn"); return; }
+  const btn = document.getElementById("testBtn");
+  const out = document.getElementById("testOut");
+  btn.disabled = true; btn.textContent = "Testing…";
+  out.textContent = ""; out.className = "test-out";
+  try {
+    const r = await post("/api/test-connection", cfg);
+    out.textContent = "✅ " + (r.version || "Connected!");
+    out.className = "test-out ok";
+    toast("Database connection OK!", "success");
+  } catch(e) {
+    out.textContent = "❌ " + e.message;
+    out.className = "test-out err";
+  } finally { btn.disabled = false; btn.textContent = "Test"; }
+}
+
+// ── Ollama test ────────────────────────────────────────────────────────────
+async function testOllama() {
+  const url = document.getElementById("cfgOllamaUrl").value.trim() || "http://localhost:11434";
+  const out = document.getElementById("ollamaTestOut");
+  out.textContent = "Testing…"; out.style.color = "var(--muted)";
+  try {
+    const r = await fetch("/api/check-ollama", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({url})
+    });
+    const d = await r.json();
+    if (d.available) {
+      out.textContent = `✅ Online · ${d.models.length} model(s): ${d.models.slice(0,3).join(", ")}`;
+      out.style.color = "var(--success)";
+      // Populate model datalist
+      const dl = document.getElementById("modelList");
+      dl.innerHTML = d.models.map(m=>`<option value="${esc(m)}">`).join("");
+    } else {
+      out.textContent = "❌ Ollama not running. Run: ollama serve";
+      out.style.color = "var(--danger)";
+    }
+  } catch(e) {
+    out.textContent = "❌ " + e.message;
+    out.style.color = "var(--danger)";
+  }
+}
+
+// ── Provider card expand/collapse ──────────────────────────────────────────
+function toggleProvider(name) {
+  const body  = document.getElementById(`body-${name}`);
+  const arrow = document.getElementById(`arrow-${name}`);
+  const open  = body.classList.toggle("open");
+  arrow.textContent = open ? "▼" : "▶";
+}
+
+// ── Test external AI provider & load models ────────────────────────────────
+async function testProvider(name) {
+  const keyEl  = document.getElementById(`cfg${capitalize(name)}`);
+  const outEl  = document.getElementById(`out-${name}`);
+  const modDiv = document.getElementById(`models-${name}`);
+  const modSel = document.getElementById(`model-${name}`);
+  const apiKey = keyEl.value.trim();
+
+  if (!apiKey) { outEl.textContent = "⚠️ Enter an API key first"; outEl.style.color="var(--warn)"; return; }
+
+  outEl.textContent = "Testing…"; outEl.style.color = "var(--muted)";
+  modDiv.style.display = "none";
+
+  try {
+    const r = await post("/api/test-ai-provider", { provider: name, api_key: apiKey });
+    outEl.textContent = `✅ Connected · ${r.models.length} model(s) available`;
+    outEl.style.color = "var(--success)";
+
+    // Populate model selector
+    const savedModel = S.providers[name]?.model || "";
+    modSel.innerHTML = r.models.map(m =>
+      `<option value="${esc(m.id)}" ${m.id===savedModel?"selected":""}>${esc(m.name)}</option>`
+    ).join("");
+    modDiv.style.display = "block";
+
+    // Update modeSelect to show this provider as available
+    updateModeSelectOptions();
+    toast(`${capitalize(name)} connected — ${r.models.length} models loaded`, "success");
+  } catch(e) {
+    outEl.textContent = "❌ " + e.message;
+    outEl.style.color = "var(--danger)";
+  }
+}
+
+function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+// ── Save all settings ──────────────────────────────────────────────────────
+async function saveConn() {
+  const cfg = getConfig();
+  if (!cfg.server || !cfg.database) { toast("Server and Database required","warn"); return; }
+
+  // Ollama
+  S.ollamaUrl   = document.getElementById("cfgOllamaUrl").value.trim()   || "http://localhost:11434";
+  S.ollamaModel = document.getElementById("cfgOllamaModel").value.trim() || "llama3.2";
+  localStorage.setItem("ou", S.ollamaUrl);
+  localStorage.setItem("om", S.ollamaModel);
+
+  // External providers
+  ["claude","openai","groq","openrouter"].forEach(name => {
+    const keyEl = document.getElementById(`cfg${capitalize(name)}`);
+    const selEl = document.getElementById(`model-${name}`);
+    S.providers[name].key   = keyEl?.value.trim() || "";
+    S.providers[name].model = selEl?.value || S.providers[name].model;
+  });
+  localStorage.setItem("providers", JSON.stringify(S.providers));
+
+  // DB config
+  localStorage.setItem("dc", JSON.stringify(cfg));
+  S.config = cfg;
+
+  closeModal();
+  updateModeSelectOptions();
+  await connect();
+}
+
+// ── Sync mode selector with available providers ────────────────────────────
+function updateModeSelectOptions() {
+  const sel = document.getElementById("modeSelect");
+  const cur = sel.value;
+  const opts = [
+    { v:"auto",        l:"⚡ Auto (smart routing)" },
+    { v:"ollama",      l:"🖥️ Ollama (Local, Free)" },
+  ];
+  const labels = { claude:"Claude", openai:"OpenAI", groq:"Groq", openrouter:"OpenRouter" };
+  ["claude","openai","groq","openrouter"].forEach(name => {
+    if (S.providers[name]?.key) {
+      const m = S.providers[name].model || "";
+      opts.push({ v: name, l: `☁️ ${labels[name]} — ${m.split("/").pop()}` });
+    }
+  });
+  sel.innerHTML = opts.map(o => `<option value="${o.v}" ${o.v===cur?"selected":""}>${esc(o.l)}</option>`).join("");
+}
+
+// ── Connect ────────────────────────────────────────────────────────────────
+async function connect() {
+  try {
+    const r = await post("/api/tables", S.config);
+    S.tables = r.tables;
+    S.connected = true;
+    setConnected(true);
+    renderTables();
+    toast(`Connected! Found ${r.tables.length} tables`, "success");
+    checkOllama();
+  } catch(e) {
+    setConnected(false);
+    toast("Could not connect: " + e.message, "error");
+  }
+}
+
+function setConnected(v) {
+  document.getElementById("connDot").className = "conn-dot " + (v ? "ok" : "err");
+  document.getElementById("connLabel").textContent = v ? (S.config?.database || "Connected") : "Connection Error";
+  document.getElementById("chatSub").textContent = v
+    ? `Connected to ${S.config?.database} · Read-only`
+    : "Connect to your database to start";
+  document.getElementById("chatTitle").textContent = v
+    ? `Chat with ${S.config?.database}`
+    : "SQL AI Chat";
+}
+
+function renderTables() {
+  const list = document.getElementById("tableList");
+  const count = document.getElementById("tableCount");
+  count.textContent = `(${S.tables.length})`;
+  if (!S.tables.length) { list.innerHTML = `<div style="padding:12px;text-align:center;color:var(--muted);font-size:12px;">No tables found</div>`; return; }
+  list.innerHTML = S.tables.map(t =>
+    `<div class="table-item" onclick="askAboutTable('${esc(t.schema)}.${esc(t.name)}')" title="${esc(t.schema)}.${esc(t.name)}">
+      <span>${t.type==="VIEW"?"👁️":"📋"}</span>
+      <span>${esc(t.name)}</span>
+    </div>`
+  ).join("");
+}
+
+function askAboutTable(full) {
+  document.getElementById("msgInput").value = `Show me a summary of the ${full} table`;
+  sendMessage();
+}
+
+// ── Ollama check ───────────────────────────────────────────────────────────
+async function checkOllama() {
+  try {
+    const r = await fetch("/api/check-ollama", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({url: S.ollamaUrl})
+    });
+    const d = await r.json();
+    const dot = document.getElementById("ollamaDot");
+    const lbl = document.getElementById("ollamaLabel");
+    if (d.available) {
+      dot.className = "ai-dot ok";
+      lbl.textContent = `Ollama · ${d.models.length} model(s)`;
+    } else {
+      dot.className = "ai-dot";
+      lbl.textContent = "Ollama offline";
+    }
+  } catch {}
+}
+
+// ── API helper ─────────────────────────────────────────────────────────────
+async function post(path, body) {
+  const r = await fetch(path, {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body:JSON.stringify(body)
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.detail || "Request failed");
+  return d;
+}
+
+function esc(s) {
+  return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+// ── Chat ───────────────────────────────────────────────────────────────────
+function showChatArea() {
+  document.getElementById("welcomeScreen").style.display = "none";
+  const w = document.getElementById("messagesWrap");
+  w.style.display = "flex";
+}
+
+function newChat() {
+  S.history = [];
+  document.getElementById("messages").innerHTML = "";
+  document.getElementById("welcomeScreen").style.display = "";
+  document.getElementById("messagesWrap").style.display = "none";
+  document.getElementById("suggestions").style.display = "none";
+}
+
+function useExample(btn) {
+  document.getElementById("msgInput").value = btn.textContent.replace(/^[^\s]+\s/,"").trim();
+  sendMessage();
+}
+
+async function sendMessage() {
+  if (!S.config) { toast("Connect to a database first","warn"); openModal(); return; }
+
+  const input = document.getElementById("msgInput");
+  const msg = input.value.trim();
+  if (!msg) return;
+
+  input.value = "";
+  autoResize(input);
+
+  showChatArea();
+  appendUserMsg(msg);
+
+  const typingId = appendTyping();
+
+  document.getElementById("sendBtn").disabled = true;
+  document.getElementById("suggestions").style.display = "none";
+
+  try {
+    const p = S.providers;
+    const aiCfg = {
+      // Ollama
+      ollama_url:         S.ollamaUrl,
+      ollama_model:       S.ollamaModel,
+      // Provider selection
+      provider:           document.getElementById("modeSelect").value,
+      // Keys
+      claude_api_key:     p.claude.key,
+      openai_api_key:     p.openai.key,
+      groq_api_key:       p.groq.key,
+      openrouter_api_key: p.openrouter.key,
+      // Models
+      claude_model:       p.claude.model,
+      openai_model:       p.openai.model,
+      groq_model:         p.groq.model,
+      openrouter_model:   p.openrouter.model,
+      // Language
+      language:           document.getElementById("langSelect").value,
+    };
+
+    const r = await post("/api/chat", {
+      message: msg,
+      history: S.history,
+      db_config: S.config,
+      ai_config: aiCfg,
+    });
+
+    removeTyping(typingId);
+    appendAiMsg(r);
+
+    // Save to history
+    S.history.push({role:"user", content:msg});
+    S.history.push({role:"assistant", content:r.answer});
+    if (S.history.length > 20) S.history = S.history.slice(-20);
+
+    showSuggestions(r);
+
+  } catch(e) {
+    removeTyping(typingId);
+    appendError(e.message);
+    toast("Error: " + e.message, "error");
+  } finally {
+    document.getElementById("sendBtn").disabled = false;
+    input.focus();
+  }
+}
+
+let msgCount = 0;
+function appendUserMsg(text) {
+  const id = `m${++msgCount}`;
+  const el = document.createElement("div");
+  el.className = "msg-row user";
+  el.id = id;
+  el.innerHTML = `
+    <div class="avatar user">👤</div>
+    <div class="bubble">
+      <div class="bubble-text">${esc(text)}</div>
+    </div>`;
+  getMessages().appendChild(el);
+  scrollBottom();
+  return id;
+}
+
+function appendTyping() {
+  const id = `t${++msgCount}`;
+  const el = document.createElement("div");
+  el.className = "msg-row assistant";
+  el.id = id;
+  el.innerHTML = `
+    <div class="avatar ai">🤖</div>
+    <div class="bubble">
+      <div class="typing"><span></span><span></span><span></span></div>
+    </div>`;
+  getMessages().appendChild(el);
+  scrollBottom();
+  return id;
+}
+
+function removeTyping(id) {
+  document.getElementById(id)?.remove();
+}
+
+function appendAiMsg(r) {
+  const id = `m${++msgCount}`;
+  const el = document.createElement("div");
+  el.className = "msg-row assistant";
+  el.id = id;
+
+  const formattedAnswer = formatText(r.answer || "No answer returned.");
+
+  let sqlHtml = "";
+  if (r.sql) {
+    const sqlId = `sql_${id}`;
+    sqlHtml = `
+      <div class="sql-accordion">
+        <button class="sql-toggle" onclick="toggleSql('${sqlId}')">
+          <span>📄</span><span>View SQL Query</span>
+          <span style="margin-left:auto;font-size:10px" id="${sqlId}_arrow">▼</span>
+        </button>
+        <div class="sql-body" id="${sqlId}">
+          <button class="copy-sql" onclick="copySql('${sqlId}_code')">Copy</button>
+          <pre id="${sqlId}_code">${esc(r.sql)}</pre>
+        </div>
+      </div>`;
+  }
+
+  let tableHtml = "";
+  if (r.data && r.data.length > 0 && r.columns && r.columns.length > 0) {
+    const rowsLabel = r.row_count > r.data.length
+      ? `Showing ${r.data.length} of ${r.row_count} rows`
+      : `${r.row_count} row${r.row_count !== 1 ? "s" : ""}`;
+    tableHtml = `
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">📊 ${rowsLabel}</div>
+        <div class="mini-table-wrap">${buildTable(r.columns, r.data)}</div>
+      </div>`;
+  }
+
+  const badge = r.ai_used || "";
+  el.innerHTML = `
+    <div class="avatar ai">🤖</div>
+    <div class="bubble">
+      <div class="bubble-text">${formattedAnswer}</div>
+      ${sqlHtml}
+      ${tableHtml}
+      <div class="msg-meta">
+        ${badge ? `<span class="ai-badge">${esc(badge)}</span>` : ""}
+        <span style="margin-left:auto">${new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}</span>
+      </div>
+    </div>`;
+  getMessages().appendChild(el);
+  scrollBottom();
+}
+
+function appendError(msg) {
+  const el = document.createElement("div");
+  el.className = "msg-row assistant";
+  el.innerHTML = `
+    <div class="avatar ai">🤖</div>
+    <div class="bubble">
+      <div class="bubble-text" style="color:var(--danger)">❌ ${esc(msg)}</div>
+    </div>`;
+  getMessages().appendChild(el);
+  scrollBottom();
+}
+
+function buildTable(cols, data) {
+  const isNum = col => data.slice(0,5).some(r => typeof r[col] === "number");
+  const header = cols.map(c => `<th>${esc(c)}</th>`).join("");
+  const rows = data.map(row =>
+    `<tr>${cols.map(c => {
+      const v = row[c];
+      if (v === null) return `<td class="td-null">NULL</td>`;
+      const cls = isNum(c) ? ' class="td-num"' : "";
+      return `<td${cls}>${esc(String(v))}</td>`;
+    }).join("")}</tr>`
+  ).join("");
+  return `<table class="mini-table"><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function toggleSql(id) {
+  const body = document.getElementById(id);
+  const arrow = document.getElementById(id + "_arrow");
+  const open = body.classList.toggle("open");
+  if (arrow) arrow.textContent = open ? "▲" : "▼";
+}
+
+function copySql(codeId) {
+  const code = document.getElementById(codeId);
+  if (code) navigator.clipboard.writeText(code.textContent).then(() => toast("SQL copied!", "success"));
+}
+
+function formatText(text) {
+  return text
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+    .replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g,"<em>$1</em>")
+    .replace(/^#{1,3} (.+)$/gm,"<strong style='color:var(--accent2)'>$1</strong>")
+    .replace(/^(\d+\.) (.+)$/gm,"<div style='padding-left:14px;margin:2px 0'><strong>$1</strong> $2</div>")
+    .replace(/^[-•] (.+)$/gm,"<div style='padding-left:14px;margin:2px 0'>• $1</div>")
+    .replace(/`([^`]+)`/g,"<code style='background:var(--bg);padding:1px 5px;border-radius:4px;font-family:monospace;color:var(--accent2)'>$1</code>")
+    .replace(/\n{2,}/g,"<br><br>")
+    .replace(/\n/g,"<br>");
+}
+
+function showSuggestions(r) {
+  const sugg = document.getElementById("suggestions");
+  const lang = document.getElementById("langSelect").value;
+
+  const followUps = lang === "lo" ? [
+    "ສະຫຼຸບຄືນສັ້ນໆ",
+    "ສະແດງຕົວເລກທັງໝົດ",
+    "ເປັນຫຍັງຈຶ່ງເປັນແນວນັ້ນ?",
+    "ສະແດງ 5 ອັນດັບທຳອິດ",
+  ] : [
+    "Can you explain that in simpler terms?",
+    "Show me the top 5 results",
+    "What's the trend over time?",
+    "Break it down by category",
+  ];
+
+  sugg.innerHTML = followUps.map(s =>
+    `<button class="sugg-btn" onclick="quickAsk(this)">${esc(s)}</button>`
+  ).join("");
+  sugg.style.display = "flex";
+}
+
+function quickAsk(btn) {
+  document.getElementById("msgInput").value = btn.textContent;
+  sendMessage();
+}
+
+function getMessages() { return document.getElementById("messages"); }
+function scrollBottom() {
+  const m = getMessages();
+  requestAnimationFrame(() => m.scrollTop = m.scrollHeight);
+}
+
+// ── Textarea auto-resize ───────────────────────────────────────────────────
+function autoResize(el) {
+  el.style.height = "auto";
+  el.style.height = Math.min(el.scrollHeight, 160) + "px";
+}
+document.getElementById("msgInput").addEventListener("input", function() { autoResize(this); });
+document.getElementById("msgInput").addEventListener("keydown", function(e) {
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); sendMessage(); }
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+});
+
+// ── Init ───────────────────────────────────────────────────────────────────
+updateModeSelectOptions();
+if (S.config) {
+  connect();
+} else {
+  setTimeout(openModal, 400);
+}
+checkOllama();
+</script>
+</body>
+</html>
