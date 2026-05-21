@@ -40,7 +40,7 @@ class AIConfig(BaseModel):
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.2"
     # External provider selection
-    provider: str = "auto"      # "auto" | "ollama" | "claude" | "openai" | "groq" | "openrouter"
+    provider: str = "auto"      # "auto" | "ollama" | "claude" | "openai" | "groq" | "openrouter" | "custom"
     # API keys
     claude_api_key: str = ""
     openai_api_key: str = ""
@@ -51,6 +51,10 @@ class AIConfig(BaseModel):
     openai_model: str = "gpt-4o-mini"
     groq_model: str = "llama-3.1-8b-instant"
     openrouter_model: str = "meta-llama/llama-3.1-8b-instruct:free"
+    # Custom provider (any OpenAI-compatible API)
+    custom_url: str = ""        # e.g. http://localhost:1234/v1  (LM Studio, vLLM, etc.)
+    custom_api_key: str = ""    # optional
+    custom_model: str = ""      # model name required by that endpoint
     # Legacy alias
     ai_mode: str = "auto"
     language: str = "en"    # "en" | "lo" | "both"
@@ -315,7 +319,7 @@ def call_ollama(prompt: str, cfg: AIConfig, system: str = "") -> str:
         r = requests.post(
             f"{cfg.ollama_url.rstrip('/')}/api/generate",
             json={"model": cfg.ollama_model, "prompt": full, "stream": False},
-            timeout=120,
+            timeout=300,
         )
         if r.status_code == 200:
             return r.json().get("response", "").strip()
@@ -395,6 +399,11 @@ def call_provider(prompt: str, cfg: AIConfig, system: str = "") -> tuple[str, st
         t = call_openai_compat(prompt, cfg.openrouter_api_key, cfg.openrouter_model,
                                "https://openrouter.ai/api/v1", system, "OpenRouter")
         return t, f"☁️ OpenRouter ({cfg.openrouter_model})"
+
+    if p == "custom" and cfg.custom_url and cfg.custom_model:
+        t = call_openai_compat(prompt, cfg.custom_api_key or "none", cfg.custom_model,
+                               cfg.custom_url, system, "Custom")
+        return t, f"🔧 Custom ({cfg.custom_model})"
 
     return None, ""
 
@@ -787,6 +796,22 @@ async def test_ai_provider(body: dict):
             raise
         except Exception as e:
             raise HTTPException(400, f"OpenRouter error: {e}")
+
+    # ── Custom (any OpenAI-compatible) ─────────────────────────────────────
+    if provider == "custom":
+        base_url = body.get("base_url", "").strip()
+        model    = body.get("model", "").strip()
+        if not base_url: raise HTTPException(400, "base_url is required for custom provider")
+        if not model:    raise HTTPException(400, "model name is required for custom provider")
+        try:
+            result = call_openai_compat("Say hi", api_key or "none", model, base_url,
+                                        system="You are a test.", label="Custom")
+            if result.startswith("[Custom error"):
+                raise HTTPException(400, result)
+            return {"success": True, "models": [{"id": model, "name": model}],
+                    "response_preview": result[:100]}
+        except HTTPException: raise
+        except Exception as e: raise HTTPException(400, f"Custom provider error: {e}")
 
     raise HTTPException(400, f"Unknown provider: {provider}")
 

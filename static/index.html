@@ -185,6 +185,20 @@ hr.div{border:none;border-top:1px solid var(--border)}
 /* Read-only badge */
 .ro-badge{font-size:10px;padding:3px 8px;border-radius:6px;background:rgba(16,185,129,.1);color:var(--success);border:1px solid rgba(16,185,129,.3);font-weight:600}
 
+/* AI picker button */
+.ai-pick-btn{display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px;cursor:pointer;transition:.2s;white-space:nowrap}
+.ai-pick-btn:hover{border-color:var(--accent);background:rgba(108,99,255,.1)}
+
+/* AI picker popup */
+.ai-picker-popup{position:fixed;z-index:300;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:8px;box-shadow:0 8px 32px rgba(0,0,0,.5);min-width:240px;display:none}
+.ai-picker-popup.open{display:block}
+.ai-picker-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;cursor:pointer;transition:.15s;font-size:13px}
+.ai-picker-item:hover{background:rgba(255,255,255,.06)}
+.ai-picker-item.active{background:rgba(108,99,255,.15);color:var(--accent)}
+.ai-picker-item .pip{width:7px;height:7px;border-radius:50%;background:var(--muted);flex-shrink:0}
+.ai-picker-item .pip.ok{background:var(--success);box-shadow:0 0 5px var(--success)}
+.ai-picker-divider{border:none;border-top:1px solid var(--border);margin:4px 0}
+
 /* Provider cards */
 .provider-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden}
 .provider-header{display:flex;align-items:center;gap:8px;padding:12px 14px;cursor:pointer;font-size:13px;user-select:none;transition:.15s}
@@ -239,11 +253,11 @@ hr.div{border:none;border-top:1px solid var(--border)}
           <option value="lo">🇱🇦 ລາວ</option>
           <option value="both">🌐 Both</option>
         </select>
-        <select class="hdr-select" id="modeSelect">
-          <option value="auto">⚡ Auto AI</option>
-          <option value="local">🖥️ Local Only</option>
-          <option value="claude">☁️ Claude Only</option>
-        </select>
+        <button class="ai-pick-btn" id="aiPickBtn" onclick="openAiPicker()" title="Select AI provider">
+          <span id="aiPickIcon">⚡</span>
+          <span id="aiPickLabel">Auto AI</span>
+          <span style="font-size:10px;opacity:.6">▼</span>
+        </button>
       </div>
     </div>
 
@@ -277,6 +291,12 @@ hr.div{border:none;border-top:1px solid var(--border)}
       <div class="input-hint">Ctrl+Enter to send · Read-only mode — your database is never modified</div>
     </div>
   </div>
+</div>
+
+<!-- AI Picker Popup -->
+<div class="ai-picker-popup" id="aiPickerPopup">
+  <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);padding:4px 12px 6px">Select AI Provider</div>
+  <div id="aiPickerItems"></div>
 </div>
 
 <!-- Toast container -->
@@ -456,6 +476,37 @@ hr.div{border:none;border-top:1px solid var(--border)}
           <div id="models-openrouter" style="display:none;margin-top:8px">
             <label class="fl">Model</label>
             <select class="fi" id="model-openrouter"></select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Custom Provider -->
+      <div class="provider-card" id="card-custom">
+        <div class="provider-header" onclick="toggleProvider('custom')">
+          <span>🔧</span>
+          <strong>Custom Provider</strong>
+          <span style="margin-left:auto;font-size:11px;color:var(--muted)">LM Studio, vLLM, any OpenAI-compatible API</span>
+          <span class="provider-arrow" id="arrow-custom">▶</span>
+        </div>
+        <div class="provider-body" id="body-custom">
+          <div>
+            <label class="fl">API Base URL</label>
+            <input class="fi" id="cfgCustomUrl" placeholder="http://localhost:1234/v1"/>
+            <div style="font-size:11px;color:var(--muted);margin-top:3px">Examples: LM Studio → http://localhost:1234/v1 &nbsp;·&nbsp; Ollama OpenAI mode → http://localhost:11434/v1</div>
+          </div>
+          <div class="form-row">
+            <div>
+              <label class="fl">Model Name</label>
+              <input class="fi" id="cfgCustomModel" placeholder="llama3.2 or model-id"/>
+            </div>
+            <div>
+              <label class="fl">API Key <span style="font-weight:400">(optional)</span></label>
+              <input class="fi" id="cfgCustomKey" type="password" placeholder="Leave blank if not needed"/>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn btn-ghost" style="padding:6px 12px;font-size:12px" onclick="testCustomProvider()">🔌 Test Connection</button>
+            <span id="out-custom" style="font-size:12px;color:var(--muted)"></span>
           </div>
         </div>
       </div>
@@ -808,12 +859,13 @@ async function sendMessage() {
 
   try {
     const p = S.providers;
+    const custom = p.custom || {};
     const aiCfg = {
       // Ollama
       ollama_url:         S.ollamaUrl,
       ollama_model:       S.ollamaModel,
-      // Provider selection
-      provider:           document.getElementById("modeSelect").value,
+      // Active provider (from picker)
+      provider:           currentProvider,
       // Keys
       claude_api_key:     p.claude.key,
       openai_api_key:     p.openai.key,
@@ -824,6 +876,10 @@ async function sendMessage() {
       openai_model:       p.openai.model,
       groq_model:         p.groq.model,
       openrouter_model:   p.openrouter.model,
+      // Custom provider
+      custom_url:         custom.url   || "",
+      custom_api_key:     custom.key   || "",
+      custom_model:       custom.model || "",
       // Language
       language:           document.getElementById("langSelect").value,
     };
@@ -1037,8 +1093,158 @@ document.getElementById("msgInput").addEventListener("keydown", function(e) {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
 });
 
+// ── Custom provider ────────────────────────────────────────────────────────
+async function testCustomProvider() {
+  const url   = document.getElementById("cfgCustomUrl").value.trim();
+  const model = document.getElementById("cfgCustomModel").value.trim();
+  const key   = document.getElementById("cfgCustomKey").value.trim();
+  const out   = document.getElementById("out-custom");
+  if (!url)   { out.textContent = "⚠️ Enter the API base URL first"; out.style.color="var(--warn)"; return; }
+  if (!model) { out.textContent = "⚠️ Enter a model name first"; out.style.color="var(--warn)"; return; }
+  out.textContent = "Testing…"; out.style.color = "var(--muted)";
+  try {
+    const r = await post("/api/test-ai-provider", {
+      provider: "custom", api_key: key, base_url: url, model
+    });
+    out.textContent = `✅ Connected! Response: "${r.response_preview}"`;
+    out.style.color = "var(--success)";
+    toast("Custom provider connected!", "success");
+    updateAiPicker();
+  } catch(e) {
+    out.textContent = "❌ " + e.message;
+    out.style.color = "var(--danger)";
+  }
+}
+
+// ── AI Picker popup ────────────────────────────────────────────────────────
+let currentProvider = loadLS("activeProvider", "auto");
+
+function buildAiPickerItems() {
+  const p = S.providers;
+  const items = [
+    { v:"auto",   icon:"⚡", label:"Auto (smart routing)", always: true },
+    { v:"ollama", icon:"🖥️", label:`Ollama — ${S.ollamaModel}`, always: true },
+  ];
+  if (p.claude.key)      items.push({ v:"claude",      icon:"⚡", label:`Claude — ${p.claude.model.split("-").slice(1,3).join("-")}` });
+  if (p.openai.key)      items.push({ v:"openai",      icon:"🟢", label:`OpenAI — ${p.openai.model}` });
+  if (p.groq.key)        items.push({ v:"groq",        icon:"⚡", label:`Groq — ${p.groq.model.split("-").slice(0,3).join("-")}` });
+  if (p.openrouter.key)  items.push({ v:"openrouter",  icon:"🌐", label:`OpenRouter — ${p.openrouter.model.split("/").pop()}` });
+  if (p.custom?.url)     items.push({ v:"custom",      icon:"🔧", label:`Custom — ${p.custom.model || p.custom.url}` });
+  return items;
+}
+
+function updateAiPicker() {
+  const items = buildAiPickerItems();
+  const cur   = currentProvider;
+
+  // Update button label
+  const active = items.find(i => i.v === cur) || items[0];
+  document.getElementById("aiPickIcon").textContent  = active.icon;
+  document.getElementById("aiPickLabel").textContent = active.label;
+
+  // Rebuild popup items
+  const container = document.getElementById("aiPickerItems");
+  container.innerHTML = items.map(item => `
+    <div class="ai-picker-item ${item.v === cur ? "active" : ""}" onclick="selectAiProvider('${item.v}')">
+      <div class="pip ${item.always || item.v === 'auto' ? '' : 'ok'}"></div>
+      <span style="font-size:15px">${item.icon}</span>
+      <span style="flex:1">${esc(item.label)}</span>
+      ${item.v === cur ? '<span style="color:var(--accent);font-size:11px">✓ Active</span>' : ''}
+    </div>
+  `).join("");
+
+  // Hidden input for sendMessage to read
+  if (!document.getElementById("modeSelect")) {
+    const sel = document.createElement("select");
+    sel.id = "modeSelect";
+    sel.style.display = "none";
+    document.body.appendChild(sel);
+  }
+  const sel = document.getElementById("modeSelect");
+  sel.innerHTML = items.map(i => `<option value="${i.v}" ${i.v===cur?"selected":""}>${i.label}</option>`).join("");
+}
+
+function selectAiProvider(v) {
+  currentProvider = v;
+  localStorage.setItem("activeProvider", v);
+  updateAiPicker();
+  closeAiPicker();
+
+  const labels = { auto:"Auto AI", ollama:"Ollama", claude:"Claude",
+                   openai:"OpenAI", groq:"Groq", openrouter:"OpenRouter", custom:"Custom" };
+  toast(`AI switched to ${labels[v] || v}`, "info");
+}
+
+function openAiPicker() {
+  const popup = document.getElementById("aiPickerPopup");
+  const btn   = document.getElementById("aiPickBtn");
+  const rect  = btn.getBoundingClientRect();
+  popup.style.top  = (rect.bottom + 6) + "px";
+  popup.style.right = (window.innerWidth - rect.right) + "px";
+  popup.classList.toggle("open");
+  updateAiPicker();
+}
+
+function closeAiPicker() {
+  document.getElementById("aiPickerPopup").classList.remove("open");
+}
+
+// Close picker when clicking outside
+document.addEventListener("click", e => {
+  const popup = document.getElementById("aiPickerPopup");
+  const btn   = document.getElementById("aiPickBtn");
+  if (popup.classList.contains("open") && !popup.contains(e.target) && !btn.contains(e.target)) {
+    closeAiPicker();
+  }
+});
+
+// ── Extend openModal to restore custom provider fields ─────────────────────
+const _origOpenModal = openModal;
+openModal = function() {
+  _origOpenModal();
+  const c = S.providers.custom || {};
+  if (document.getElementById("cfgCustomUrl"))   document.getElementById("cfgCustomUrl").value   = c.url   || "";
+  if (document.getElementById("cfgCustomModel")) document.getElementById("cfgCustomModel").value = c.model || "";
+  if (document.getElementById("cfgCustomKey"))   document.getElementById("cfgCustomKey").value   = c.key   || "";
+};
+
+// ── Extend saveConn to save custom provider ────────────────────────────────
+const _origSaveConn = saveConn;
+saveConn = async function() {
+  S.providers.custom = {
+    url:   document.getElementById("cfgCustomUrl")?.value.trim()   || "",
+    model: document.getElementById("cfgCustomModel")?.value.trim() || "",
+    key:   document.getElementById("cfgCustomKey")?.value.trim()   || "",
+  };
+  localStorage.setItem("providers", JSON.stringify(S.providers));
+  await _origSaveConn();
+  updateAiPicker();
+};
+
+// ── Extend sendMessage to use currentProvider ──────────────────────────────
+// Patch the aiCfg builder to read currentProvider instead of modeSelect
+const _origSendMessage = sendMessage;
+sendMessage = async function() {
+  // Sync hidden modeSelect with currentProvider before sending
+  const sel = document.getElementById("modeSelect");
+  if (sel) sel.value = currentProvider;
+  await _origSendMessage();
+};
+
+// ── Also pass custom fields in aiCfg ──────────────────────────────────────
+// Override the aiCfg construction by patching S.providers to include custom
+Object.defineProperty(S.providers, 'custom', {
+  get() { return loadLS("providers", {}).custom || { url:"", model:"", key:"" }; },
+  set(v) {
+    const all = loadLS("providers", {});
+    all.custom = v;
+    localStorage.setItem("providers", JSON.stringify(all));
+  },
+  configurable: true
+});
+
 // ── Init ───────────────────────────────────────────────────────────────────
-updateModeSelectOptions();
+updateAiPicker();
 if (S.config) {
   connect();
 } else {
