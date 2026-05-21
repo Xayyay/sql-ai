@@ -229,7 +229,7 @@ hr.div{border:none;border-top:1px solid var(--border)}
     </div>
 
     <div class="sidebar-bottom">
-      <div class="ai-row">
+      <div class="ai-row" id="ollamaRow" style="display:none">
         <div class="ai-dot" id="ollamaDot"></div>
         <span id="ollamaLabel">Ollama — checking…</span>
       </div>
@@ -518,7 +518,7 @@ const S = {
   history:      [],
   tables:       [],
   // Ollama
-  ollamaUrl:    localStorage.getItem("ou") || "http://localhost:11434",
+  ollamaUrl:    localStorage.getItem("ou") || "",
   ollamaModel:  localStorage.getItem("om") || "llama3.2",
   // External providers — keys + chosen models
   providers: loadLS("providers", {
@@ -772,8 +772,11 @@ function askAboutTable(full) {
   sendMessage();
 }
 
-// ── Ollama check ───────────────────────────────────────────────────────────
+// ── Ollama check (optional — only runs if URL is configured) ──────────────
 async function checkOllama() {
+  const row = document.getElementById("ollamaRow");
+  if (!S.ollamaUrl) { row.style.display = "none"; return; }
+  row.style.display = "";
   try {
     const r = await fetch("/api/check-ollama", {
       method:"POST", headers:{"Content-Type":"application/json"},

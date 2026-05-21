@@ -411,45 +411,39 @@ def call_provider(prompt: str, cfg: AIConfig, system: str = "") -> tuple[str, st
 def call_ai(prompt: str, cfg: AIConfig, system: str = "", prefer_cloud: bool = False) -> tuple[str, str]:
     """
     Smart routing:
-      - provider == "ollama" → always local
-      - provider == specific cloud → always that provider
-      - provider == "auto" → prefer cloud if Lao/complex, else try Ollama first
+      - provider == "ollama"  → local Ollama (only if ollama_url is set)
+      - provider == specific cloud → always that provider, no Ollama fallback
+      - provider == "auto"    → use cloud providers; only try Ollama if ollama_url is set
+    Ollama is always optional — if ollama_url is blank it is never contacted.
     Returns (response_text, label).
     """
-    # Explicit Ollama only
+    has_ollama = bool(cfg.ollama_url and cfg.ollama_url.strip())
+
+    # Explicit Ollama request
     if cfg.provider == "ollama":
+        if not has_ollama:
+            return "[No Ollama URL configured — set it in Settings or choose a cloud provider]", "⚠️"
         return call_ollama(prompt, cfg, system), f"🖥️ Ollama ({cfg.ollama_model})"
 
-    # Explicit cloud provider
+    # Explicit cloud provider — no Ollama fallback
     if cfg.provider not in ("auto", "ollama", ""):
         t, lbl = call_provider(prompt, cfg, system)
         if t and not t.startswith("["):
             return t, lbl
-        # Fallback to Ollama
-        return call_ollama(prompt, cfg, system), f"🖥️ Ollama [fallback]"
+        return t, lbl  # return the error, don't silently fall back to Ollama
 
-    # Auto routing
-    needs_cloud = prefer_cloud or cfg.language in ("lo", "both")
-
-    if needs_cloud:
-        t, lbl = call_provider(prompt, cfg, system)
-        if t and not t.startswith("["):
-            return t, lbl
-        # Fall back to Ollama
-        r = call_ollama(prompt, cfg, system)
-        return r, f"🖥️ Ollama [cloud fallback]"
-
-    # Try Ollama first (free)
-    r = call_ollama(prompt, cfg, system)
-    if not r.startswith("[Ollama not running"):
-        return r, f"🖥️ Ollama ({cfg.ollama_model})"
-
-    # Ollama down → use cloud
+    # Auto routing — cloud first; Ollama only if URL is configured
     t, lbl = call_provider(prompt, cfg, system)
     if t and not t.startswith("["):
-        return t, f"{lbl} [Ollama unavailable]"
+        return t, lbl
 
-    return r, "🖥️ Ollama (unavailable)"
+    # Cloud failed — try Ollama only if configured
+    if has_ollama:
+        r = call_ollama(prompt, cfg, system)
+        if not r.startswith("[Ollama"):
+            return r, f"🖥️ Ollama [cloud fallback]"
+
+    return t or "[No AI provider configured — add an API key in Settings]", lbl or "⚠️"
 
 
 # ── SQL generation ────────────────────────────────────────────────────────────
@@ -511,6 +505,32 @@ Write the SQL Server SELECT query:"""
     if fence:
         raw = fence.group(1).strip()
 
+    return raw.strip()
+
+
+def fix_sql(bad_sql: str, error: str, schema: str, cfg: AIConfig) -> str:
+    """
+    Ask the AI to fix a broken SQL query given the error message and real schema.
+    Returns corrected SQL or the original if it still looks broken.
+    """
+    prompt = f"""The following SQL query failed with an error.
+Fix it so it works correctly on SQL Server 2008 R2, using ONLY tables and columns that exist in the schema below.
+
+Database schema:
+{schema}
+
+Failed SQL:
+{bad_sql}
+
+Error message:
+{error}
+
+Return ONLY the corrected SQL query — no explanation, no markdown, no code fences."""
+
+    raw, _ = call_ai(prompt, cfg, system=SQL_SYSTEM, prefer_cloud=True)
+    fence = re.search(r"```(?:sql)?\s*([\s\S]+?)```", raw, re.IGNORECASE)
+    if fence:
+        raw = fence.group(1).strip()
     return raw.strip()
 
 
@@ -657,24 +677,47 @@ async def chat(request: ChatRequest):
             "error": True,
         }
 
-    # Step 3: Execute SQL
+    # Step 3: Execute SQL (with one auto-retry if it fails)
     try:
         cols, data = run_sql(sql, request.db_config, limit=500)
-    except HTTPException as e:
-        # Tell the AI about the error so it can explain
-        answer_text = (
-            f"I generated this query but it failed to run:\n\n```sql\n{sql}\n```\n\n"
-            f"Error: `{e.detail}`\n\n"
-            "Please try rephrasing your question or check if the table/column names are correct."
-        )
-        return {
-            "answer": answer_text,
-            "sql": sql,
-            "data": [],
-            "columns": [],
-            "ai_used": "—",
-            "error": True,
-        }
+    except HTTPException as first_err:
+        # Auto-fix: feed the error + schema back to the AI and try once more
+        fixed_sql = fix_sql(sql, first_err.detail, schema, request.ai_config)
+        if fixed_sql and fixed_sql != sql and is_safe_sql(fixed_sql):
+            try:
+                cols, data = run_sql(fixed_sql, request.db_config, limit=500)
+                sql = fixed_sql   # use the fixed version for the answer
+            except HTTPException as second_err:
+                answer_text = (
+                    f"I tried to run this query but it failed twice.\n\n"
+                    f"**Original SQL:**\n```sql\n{sql}\n```\n\n"
+                    f"**Fixed SQL (also failed):**\n```sql\n{fixed_sql}\n```\n\n"
+                    f"**Error:** `{second_err.detail}`\n\n"
+                    "The tables or columns referenced may not exist in this database. "
+                    "Try asking me to **list all tables** first so I know what's available."
+                )
+                return {
+                    "answer": answer_text,
+                    "sql": fixed_sql,
+                    "data": [],
+                    "columns": [],
+                    "ai_used": "—",
+                    "error": True,
+                }
+        else:
+            answer_text = (
+                f"I generated this query but it failed to run:\n\n```sql\n{sql}\n```\n\n"
+                f"Error: `{first_err.detail}`\n\n"
+                "The tables or columns may not exist. Try asking me to **list all tables** first."
+            )
+            return {
+                "answer": answer_text,
+                "sql": sql,
+                "data": [],
+                "columns": [],
+                "ai_used": "—",
+                "error": True,
+            }
 
     # Step 4: Generate natural-language answer
     answer, ai_used = generate_answer(question, sql, cols, data, request.ai_config)
