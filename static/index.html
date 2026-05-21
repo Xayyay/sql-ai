@@ -273,7 +273,7 @@ hr.div{border:none;border-top:1px solid var(--border)}
         <button class="ex-btn" onclick="useExample(this)">📋 What tables are in this database?</button>
       </div>
     </div>
-    <div id="messagesWrap" style="display:none;flex:1;display:none;flex-direction:column;overflow:hidden">
+    <div id="messagesWrap" style="display:none;flex:1;flex-direction:column;overflow:hidden">
       <div class="messages" id="messages"></div>
     </div>
 
@@ -341,54 +341,39 @@ hr.div{border:none;border-top:1px solid var(--border)}
         </div>
       </div>
       <hr class="div"/>
-      <div>
-        <label class="fl">Claude API Key <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted)">(for Lao language & complex questions)</span></label>
-        <input class="fi" id="cfgClaude" type="password" placeholder="sk-ant-…"/>
-      </div>
-      <div class="form-row">
-        <div>
-          <label class="fl">Ollama URL <span style="font-weight:400;text-transform:none">(free local AI)</span></label>
-          <input class="fi" id="cfgOllamaUrl" value="http://localhost:11434"/>
-        </div>
-        <div>
-          <label class="fl">Ollama Model</label>
-          <input class="fi" id="cfgOllamaModel" value="llama3.2" list="modelList"/>
-          <datalist id="modelList">
-            <option value="llama3.2"/><option value="llama3.1"/>
-            <option value="mistral"/><option value="qwen2.5"/>
-          </datalist>
-        </div>
-      </div>
-      <hr class="div"/>
 
       <!-- AI Providers -->
       <div style="font-size:13px;font-weight:700;color:var(--text)">🤖 AI Providers</div>
       <div style="font-size:12px;color:var(--muted)">Add keys for the providers you want. You can use multiple — the app picks the best one automatically, or you can force a specific one in the chat header.</div>
 
-      <!-- Ollama (local) -->
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:10px">
-        <div style="display:flex;align-items:center;gap:8px">
+      <!-- Ollama (local, optional) -->
+      <div class="provider-card" id="card-ollama">
+        <div class="provider-header" onclick="toggleProvider('ollama')">
           <span>🖥️</span>
-          <strong style="font-size:13px">Ollama (Local — Free)</strong>
-          <span style="margin-left:auto;font-size:11px;color:var(--muted)">No API key needed</span>
+          <strong>Ollama (Local — Free)</strong>
+          <span style="margin-left:auto;font-size:11px;color:var(--muted)">No API key needed · runs on your machine</span>
+          <span class="provider-arrow" id="arrow-ollama">▶</span>
         </div>
-        <div class="form-row">
-          <div>
-            <label class="fl">Ollama URL</label>
-            <input class="fi" id="cfgOllamaUrl" value="http://localhost:11434"/>
+        <div class="provider-body" id="body-ollama">
+          <div class="form-row">
+            <div>
+              <label class="fl">Ollama URL</label>
+              <input class="fi" id="cfgOllamaUrl" placeholder="http://localhost:11434"/>
+            </div>
+            <div>
+              <label class="fl">Model</label>
+              <input class="fi" id="cfgOllamaModel" placeholder="llama3.2" list="modelList"/>
+              <datalist id="modelList">
+                <option value="llama3.2"/><option value="llama3.2:1b"/>
+                <option value="llama3.1"/><option value="mistral"/>
+                <option value="qwen2.5"/><option value="phi3:mini"/>
+              </datalist>
+            </div>
           </div>
-          <div>
-            <label class="fl">Model</label>
-            <input class="fi" id="cfgOllamaModel" value="llama3.2" list="modelList"/>
-            <datalist id="modelList">
-              <option value="llama3.2"/><option value="llama3.1"/>
-              <option value="mistral"/><option value="qwen2.5"/><option value="phi3"/>
-            </datalist>
+          <div style="display:flex;align-items:center;gap:8px">
+            <button class="btn btn-ghost" style="padding:6px 12px;font-size:12px" onclick="testOllama()">🔌 Test Ollama</button>
+            <span id="ollamaTestOut" style="font-size:12px;color:var(--muted)"></span>
           </div>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <button class="btn btn-ghost" style="padding:6px 12px;font-size:12px" onclick="testOllama()">🔌 Test Ollama</button>
-          <span id="ollamaTestOut" style="font-size:12px;color:var(--muted)"></span>
         </div>
       </div>
 
@@ -565,22 +550,25 @@ function openModal() {
     document.getElementById("cfgWin").checked   = S.config.use_windows_auth || false;
     toggleWinAuth();
   }
-  // Ollama
-  document.getElementById("cfgOllamaUrl").value   = S.ollamaUrl;
-  document.getElementById("cfgOllamaModel").value = S.ollamaModel;
+  // Ollama (optional)
+  document.getElementById("cfgOllamaUrl").value   = S.ollamaUrl || "";
+  document.getElementById("cfgOllamaModel").value = S.ollamaModel || "";
   // Provider keys
   const p = S.providers;
-  document.getElementById("cfgClaude").value     = p.claude.key;
-  document.getElementById("cfgOpenAI").value     = p.openai.key;
-  document.getElementById("cfgGroq").value       = p.groq.key;
-  document.getElementById("cfgOpenRouter").value = p.openrouter.key;
+  document.getElementById("cfgClaude").value     = p.claude?.key     || "";
+  document.getElementById("cfgOpenAI").value     = p.openai?.key     || "";
+  document.getElementById("cfgGroq").value       = p.groq?.key       || "";
+  document.getElementById("cfgOpenRouter").value = p.openrouter?.key || "";
   // Restore saved models into selects if they exist
   ["claude","openai","groq","openrouter"].forEach(name => {
     const sel = document.getElementById(`model-${name}`);
-    if (sel && sel.options.length > 0) {
-      sel.value = p[name].model;
-    }
+    if (sel && sel.options.length > 0) sel.value = p[name]?.model || "";
   });
+  // Custom provider
+  const c = S.providers.custom || {};
+  document.getElementById("cfgCustomUrl").value   = c.url   || "";
+  document.getElementById("cfgCustomModel").value = c.model || "";
+  document.getElementById("cfgCustomKey").value   = c.key   || "";
   document.getElementById("connOverlay").classList.add("open");
 }
 
@@ -697,9 +685,9 @@ async function saveConn() {
   const cfg = getConfig();
   if (!cfg.server || !cfg.database) { toast("Server and Database required","warn"); return; }
 
-  // Ollama
-  S.ollamaUrl   = document.getElementById("cfgOllamaUrl").value.trim()   || "http://localhost:11434";
-  S.ollamaModel = document.getElementById("cfgOllamaModel").value.trim() || "llama3.2";
+  // Ollama (optional — leave blank to skip)
+  S.ollamaUrl   = document.getElementById("cfgOllamaUrl").value.trim()   || "";
+  S.ollamaModel = document.getElementById("cfgOllamaModel").value.trim() || "";
   localStorage.setItem("ou", S.ollamaUrl);
   localStorage.setItem("om", S.ollamaModel);
 
@@ -1122,14 +1110,18 @@ let currentProvider = loadLS("activeProvider", "auto");
 function buildAiPickerItems() {
   const p = S.providers;
   const items = [
-    { v:"auto",   icon:"⚡", label:"Auto (smart routing)", always: true },
-    { v:"ollama", icon:"🖥️", label:`Ollama — ${S.ollamaModel}`, always: true },
+    { v:"auto", icon:"⚡", label:"Auto (smart routing)" },
   ];
-  if (p.claude.key)      items.push({ v:"claude",      icon:"⚡", label:`Claude — ${p.claude.model.split("-").slice(1,3).join("-")}` });
-  if (p.openai.key)      items.push({ v:"openai",      icon:"🟢", label:`OpenAI — ${p.openai.model}` });
-  if (p.groq.key)        items.push({ v:"groq",        icon:"⚡", label:`Groq — ${p.groq.model.split("-").slice(0,3).join("-")}` });
-  if (p.openrouter.key)  items.push({ v:"openrouter",  icon:"🌐", label:`OpenRouter — ${p.openrouter.model.split("/").pop()}` });
-  if (p.custom?.url)     items.push({ v:"custom",      icon:"🔧", label:`Custom — ${p.custom.model || p.custom.url}` });
+  // Ollama — only if URL is configured
+  if (S.ollamaUrl) {
+    items.push({ v:"ollama", icon:"🖥️", label:`Ollama — ${S.ollamaModel || "llama3.2"}` });
+  }
+  if (p.claude?.key)      items.push({ v:"claude",     icon:"☁️", label:`Claude — ${(p.claude.model||"").split("-").slice(1,3).join("-")}` });
+  if (p.openai?.key)      items.push({ v:"openai",     icon:"🟢", label:`OpenAI — ${p.openai.model||"gpt-4o-mini"}` });
+  if (p.groq?.key)        items.push({ v:"groq",       icon:"⚡", label:`Groq — ${(p.groq.model||"").split("-").slice(0,3).join("-")}` });
+  if (p.openrouter?.key)  items.push({ v:"openrouter", icon:"🌐", label:`OpenRouter — ${(p.openrouter.model||"").split("/").pop()}` });
+  const c = p.custom || {};
+  if (c.url && c.model)   items.push({ v:"custom",     icon:"🔧", label:`Custom — ${c.model}` });
   return items;
 }
 
