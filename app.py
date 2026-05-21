@@ -72,31 +72,100 @@ class QueryRequest(BaseModel):
 
 # ── DB helpers ───────────────────────────────────────────────────────────────
 
+def _clean_server(config: DBConfig):
+    """Strip port from server string if user included it, return (server, port)."""
+    server = config.server.strip()
+    port   = config.port or 1433
+    if "," in server:
+        parts  = server.split(",", 1)
+        server = parts[0].strip()
+        port   = int(parts[1].strip()) if parts[1].strip().isdigit() else port
+    elif ":" in server and not server.startswith("["):
+        parts  = server.rsplit(":", 1)
+        server = parts[0].strip()
+        port   = int(parts[1].strip()) if parts[1].strip().isdigit() else port
+    return server, port
+
+
 def get_connection(config: DBConfig):
     """
-    Try pymssql (FreeTDS) first — best for SQL Server 2008 R2 on Linux.
-    Fall back to pyodbc if pymssql is not installed.
+    Connection strategy (tries in order):
+      1. pyodbc + FreeTDS ODBC driver  — best for SQL Server 2008 R2 on Linux
+      2. pyodbc + Microsoft ODBC driver — Windows / Mac
+      3. pymssql                        — last resort
     """
-    # ── pymssql via FreeTDS (recommended for SQL Server 2008 R2 on Linux) ──
+    import pyodbc
+
+    server, port = _clean_server(config)
+    extra_pyodbc  = "TDS_Version=7.3;Encrypt=no;TrustServerCertificate=yes;"
+    auth = ("Trusted_Connection=yes;" if config.use_windows_auth
+            else f"UID={config.username};PWD={config.password};")
+
+    # ── 1. pyodbc via FreeTDS ODBC (Linux — uses system FreeTDS, TLS-safe) ──
+    freetds_driver = None
+    for drv in pyodbc.drivers():
+        if "FreeTDS" in drv or "freetds" in drv.lower():
+            freetds_driver = drv
+            break
+
+    if freetds_driver:
+        cs = (f"DRIVER={{{freetds_driver}}};SERVER={server};PORT={port};"
+              f"DATABASE={config.database};{auth}{extra_pyodbc}")
+        try:
+            return pyodbc.connect(cs, timeout=10)
+        except Exception as e:
+            freetds_err = str(e)
+    else:
+        freetds_err = "FreeTDS ODBC driver not registered in /etc/odbcinst.ini"
+
+    # ── 2. pyodbc via Microsoft ODBC driver (Windows / Mac) ─────────────────
+    ms_preferred = [
+        "SQL Server Native Client 10.0",
+        "SQL Server Native Client 11.0",
+        "SQL Server",
+        "ODBC Driver 13 for SQL Server",
+        "ODBC Driver 17 for SQL Server",
+        "ODBC Driver 18 for SQL Server",
+    ]
+    ms_drivers = [d for d in ms_preferred if d in pyodbc.drivers()]
+    ms_err = None
+    for drv in ms_drivers:
+        cs = (f"DRIVER={{{drv}}};SERVER={server},{port};"
+              f"DATABASE={config.database};{auth}"
+              f"TrustServerCertificate=yes;Encrypt=no;")
+        try:
+            return pyodbc.connect(cs, timeout=10)
+        except Exception as e:
+            ms_err = e
+
+    # ── 3. pymssql fallback ──────────────────────────────────────────────────
     try:
         import pymssql
-        conn = pymssql.connect(
-            server=config.server,
-            port=config.port,
+        return pymssql.connect(
+            server=server, port=port,
             user=config.username if not config.use_windows_auth else None,
             password=config.password if not config.use_windows_auth else None,
             database=config.database,
-            login_timeout=10,
-            tds_version="7.3",       # SQL Server 2008 R2
-            charset="UTF-8",
+            login_timeout=10, tds_version="7.3", charset="UTF-8",
         )
-        return conn
     except ImportError:
-        pass  # pymssql not installed, try pyodbc below
+        pass
     except Exception as e:
-        raise HTTPException(400, f"Connection failed (pymssql): {e}\n\n"
-            "Tip: Install FreeTDS → sudo apt-get install freetds-dev freetds-bin\n"
-            "     Then: pip3 install pymssql --break-system-packages")
+        pass
+
+    # ── All failed — give a helpful error ────────────────────────────────────
+    raise HTTPException(400,
+        f"Could not connect to SQL Server at {server}:{port}.\n\n"
+        f"FreeTDS ODBC: {freetds_err}\n"
+        f"MS ODBC: {ms_err or 'no Microsoft ODBC drivers found'}\n\n"
+        f"Linux fix:\n"
+        f"  sudo apt-get install -y freetds-bin tdsodbc unixodbc\n"
+        f"  sudo tee /etc/odbcinst.ini << 'EOF'\n"
+        f"[FreeTDS]\n"
+        f"Driver=/usr/lib/x86_64-linux-gnu/odbc/libtdsodbc.so\n"
+        f"EOF\n"
+        f"  Then restart the app."
+    )
 
     # ── pyodbc fallback (Windows / Mac) ─────────────────────────────────────
     try:
