@@ -73,35 +73,91 @@ class QueryRequest(BaseModel):
 # ── DB helpers ───────────────────────────────────────────────────────────────
 
 def get_connection(config: DBConfig):
+    """
+    Try pymssql (FreeTDS) first — best for SQL Server 2008 R2 on Linux.
+    Fall back to pyodbc if pymssql is not installed.
+    """
+    # ── pymssql via FreeTDS (recommended for SQL Server 2008 R2 on Linux) ──
+    try:
+        import pymssql
+        conn = pymssql.connect(
+            server=config.server,
+            port=config.port,
+            user=config.username if not config.use_windows_auth else None,
+            password=config.password if not config.use_windows_auth else None,
+            database=config.database,
+            login_timeout=10,
+            tds_version="7.3",       # SQL Server 2008 R2
+            charset="UTF-8",
+        )
+        return conn
+    except ImportError:
+        pass  # pymssql not installed, try pyodbc below
+    except Exception as e:
+        raise HTTPException(400, f"Connection failed (pymssql): {e}\n\n"
+            "Tip: Install FreeTDS → sudo apt-get install freetds-dev freetds-bin\n"
+            "     Then: pip3 install pymssql --break-system-packages")
+
+    # ── pyodbc fallback (Windows / Mac) ─────────────────────────────────────
     try:
         import pyodbc
     except ImportError:
-        raise HTTPException(500, "pyodbc not installed. Run: pip install pyodbc")
+        raise HTTPException(500,
+            "No database driver found.\n"
+            "Linux:   sudo apt-get install freetds-dev && pip3 install pymssql\n"
+            "Mac:     brew install msodbcsql17 && pip3 install pyodbc\n"
+            "Windows: pip install pyodbc (ODBC driver already included)")
 
-    drivers = [d for d in pyodbc.drivers() if "SQL Server" in d]
-    if not drivers:
-        raise HTTPException(500, "No SQL Server ODBC driver found. Install 'ODBC Driver 17 for SQL Server'.")
-    driver = drivers[-1]
+    all_drivers = pyodbc.drivers()
+    preferred_order = [
+        "SQL Server Native Client 10.0",
+        "SQL Server Native Client 11.0",
+        "SQL Server",
+        "ODBC Driver 13 for SQL Server",
+        "ODBC Driver 17 for SQL Server",
+        "ODBC Driver 18 for SQL Server",
+    ]
+    available = [d for d in preferred_order if d in all_drivers]
+    if not available:
+        available = [d for d in all_drivers if "SQL Server" in d]
+    if not available:
+        raise HTTPException(500, "No SQL Server ODBC driver found.")
 
-    if config.use_windows_auth:
-        cs = (f"DRIVER={{{driver}}};SERVER={config.server},{config.port};"
-              f"DATABASE={config.database};Trusted_Connection=yes;")
-    else:
-        cs = (f"DRIVER={{{driver}}};SERVER={config.server},{config.port};"
-              f"DATABASE={config.database};UID={config.username};PWD={config.password};")
-    try:
-        return __import__("pyodbc").connect(cs, timeout=10)
-    except Exception as e:
-        raise HTTPException(400, f"Connection failed: {e}")
+    extra = "TrustServerCertificate=yes;Encrypt=no;"
+    last_err = None
+    for drv in available:
+        try:
+            if config.use_windows_auth:
+                cs = (f"DRIVER={{{drv}}};SERVER={config.server},{config.port};"
+                      f"DATABASE={config.database};Trusted_Connection=yes;{extra}")
+            else:
+                cs = (f"DRIVER={{{drv}}};SERVER={config.server},{config.port};"
+                      f"DATABASE={config.database};UID={config.username};"
+                      f"PWD={config.password};{extra}")
+            return pyodbc.connect(cs, timeout=10)
+        except Exception as e:
+            last_err = e
+            continue
+
+    raise HTTPException(400, f"Connection failed: {last_err}")
 
 
 def serialize_val(v):
     if v is None:
         return None
-    if hasattr(v, "isoformat"):
+    if hasattr(v, "isoformat"):   # datetime, date, time
         return v.isoformat()
-    if isinstance(v, (int, float, bool, str)):
+    if isinstance(v, bool):
         return v
+    if isinstance(v, (int, float, str)):
+        return v
+    # Decimal (pymssql returns these for NUMERIC/MONEY columns)
+    try:
+        from decimal import Decimal
+        if isinstance(v, Decimal):
+            return float(v)
+    except ImportError:
+        pass
     return str(v)
 
 
@@ -142,7 +198,7 @@ def get_schema(config: DBConfig) -> str:
     conn = get_connection(config)
     cur = conn.cursor()
 
-    # Get tables
+    # Get tables — pure INFORMATION_SCHEMA (compatible with SQL Server 2008 R2+)
     cur.execute("""
         SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE
         FROM INFORMATION_SCHEMA.TABLES
@@ -320,17 +376,37 @@ def call_ai(prompt: str, cfg: AIConfig, system: str = "", prefer_cloud: bool = F
 
 # ── SQL generation ────────────────────────────────────────────────────────────
 
-SQL_SYSTEM = """You are an expert Microsoft SQL Server (MSSQL) query writer.
-Your job is to convert a user's natural language question into a single valid T-SQL SELECT query.
+SQL_SYSTEM = """You are an expert Microsoft SQL Server 2008 R2 query writer.
+Your job is to convert a user's natural language question into a single valid T-SQL SELECT query
+that is fully compatible with SQL Server 2008 R2.
 
 Rules:
 - Output ONLY the raw SQL query — no markdown, no explanation, no code fences.
 - Use only SELECT statements. Never use INSERT, UPDATE, DELETE, DROP, ALTER, EXEC.
-- Use SQL Server syntax: TOP instead of LIMIT, GETDATE(), CONVERT(), etc.
 - Always add TOP 500 unless the user asks for everything.
-- Use square brackets [TableName] for table names.
+- Use square brackets [SchemaName].[TableName] for all table references.
 - If the question is ambiguous, make a reasonable assumption and query anyway.
 - If you genuinely cannot map the question to any table, output exactly: CANNOT_GENERATE
+
+SQL Server 2008 R2 compatibility — NEVER use these (they don't exist yet):
+- No OFFSET...FETCH NEXT (use ROW_NUMBER() in a subquery instead)
+- No TRY_CONVERT, TRY_CAST, TRY_PARSE
+- No IIF() — use CASE WHEN ... THEN ... ELSE ... END instead
+- No FORMAT() — use CONVERT() with style codes instead
+- No DATEFROMPARTS(), TIMEFROMPARTS(), DATETIMEFROMPARTS()
+- No THROW — use RAISERROR instead
+- No LAG(), LEAD() window functions
+- No STRING_AGG()
+- No CONCAT() with multiple args — use + operator instead
+
+USE these 2008 R2 compatible features:
+- GETDATE(), DATEADD(), DATEDIFF(), DATENAME(), DATEPART(), YEAR(), MONTH(), DAY()
+- CONVERT(VARCHAR, date_col, 103) for date formatting
+- ROW_NUMBER() OVER (PARTITION BY ... ORDER BY ...) for ranking/pagination
+- CASE WHEN ... THEN ... ELSE ... END
+- ISNULL(), COALESCE(), NULLIF()
+- CAST(), CONVERT()
+- TOP N for limiting rows
 """
 
 def generate_sql(question: str, schema: str, history: List[ChatMessage], cfg: AIConfig) -> str:

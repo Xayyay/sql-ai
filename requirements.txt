@@ -6,6 +6,11 @@ fastapi==0.115.5
 uvicorn==0.32.1
 
 # MSSQL connection
+# Linux (recommended for SQL Server 2008 R2): pip install pymssql
+# Requires: sudo apt-get install freetds-dev freetds-bin
+pymssql==2.3.1
+
+# Windows / Mac fallback
 pyodbc==5.2.0
 
 # AI providers (all optional — install only what you use)
