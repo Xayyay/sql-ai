@@ -495,7 +495,7 @@ User question: {question}
 
 Write the SQL Server SELECT query:"""
 
-    raw, _ = call_ai(prompt, cfg, system=SQL_SYSTEM, prefer_claude=True)
+    raw, _ = call_ai(prompt, cfg, system=SQL_SYSTEM, prefer_cloud=True)
 
     # Extract SQL from code fences if AI added them anyway
     fence = re.search(r"```(?:sql)?\s*([\s\S]+?)```", raw, re.IGNORECASE)
@@ -549,7 +549,7 @@ Query results:
 
 Please answer the user's question based on the data above."""
 
-    return call_ai(prompt, cfg, system=ANSWER_SYSTEM, prefer_claude=cfg.language in ("lo", "both"))
+    return call_ai(prompt, cfg, system=ANSWER_SYSTEM, prefer_cloud=cfg.language in ("lo", "both"))
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
