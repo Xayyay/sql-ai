@@ -652,6 +652,21 @@ async def chat(request: ChatRequest):
     # Step 2: Generate SQL
     sql = generate_sql(question, schema, request.history, request.ai_config)
 
+    # If the AI returned an error message instead of SQL, surface it clearly
+    if sql.startswith("[") and not sql.strip().upper().startswith("[DBO]"):
+        return {
+            "answer": (
+                f"⚠️ The AI provider returned an error instead of a query:\n\n`{sql}`\n\n"
+                "Common causes: rate limit reached, invalid API key, or the provider is down. "
+                "Check your API key in Settings or try a different AI provider."
+            ),
+            "sql": None,
+            "data": [],
+            "columns": [],
+            "ai_used": "—",
+            "error": True,
+        }
+
     if sql == "CANNOT_GENERATE" or not sql:
         return {
             "answer": (
