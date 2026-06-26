@@ -68,6 +68,7 @@ class ChatRequest(BaseModel):
     history: List[ChatMessage] = []
     db_config: DBConfig
     ai_config: AIConfig
+    selected_tables: List[str] = []   # e.g. ["dbo.Orders","dbo.Products"] — empty = all tables
 
 class QueryRequest(BaseModel):
     sql: str
@@ -309,6 +310,58 @@ def get_schema(config: DBConfig) -> str:
         lines.append("")
 
     return "\n".join(lines)
+
+
+def filter_schema(schema_text: str, selected_tables: List[str]) -> str:
+    """
+    Given the full schema text and a list of 'schema.table' keys,
+    return only the blocks for the requested tables.
+    If selected_tables is empty, return the full schema unchanged.
+    """
+    if not selected_tables:
+        return schema_text
+
+    # Normalise to lowercase for matching
+    wanted = {t.lower() for t in selected_tables}
+
+    # Schema text is formatted as blocks separated by blank lines.
+    # Each block starts with "[TABLE] schema.name" or "[VIEW] schema.name"
+    lines = schema_text.split("\n")
+    out = [lines[0], ""]   # keep the "Database: ..." header line
+    in_block = False
+    block_lines: List[str] = []
+
+    for line in lines[1:]:
+        stripped = line.strip()
+        # Detect block header: "[TABLE] dbo.Orders" or "[VIEW] dbo.v_Sales"
+        if stripped.startswith("[TABLE]") or stripped.startswith("[VIEW]"):
+            # Flush previous block if it was wanted
+            if in_block and block_lines:
+                out.extend(block_lines)
+                out.append("")
+            # Check if this new block is wanted
+            parts = stripped.split(None, 1)
+            key = parts[1].lower() if len(parts) > 1 else ""
+            in_block = key in wanted
+            block_lines = [line]
+        elif stripped == "":
+            # end of current block
+            if in_block and block_lines:
+                out.extend(block_lines)
+                out.append("")
+            in_block = False
+            block_lines = []
+        else:
+            if in_block:
+                block_lines.append(line)
+
+    # flush last block
+    if in_block and block_lines:
+        out.extend(block_lines)
+        out.append("")
+
+    note = f"\n⚠️ Schema filtered to {len(selected_tables)} table(s): {', '.join(selected_tables)}"
+    return "\n".join(out) + note
 
 
 # ── AI helpers ───────────────────────────────────────────────────────────────
@@ -648,6 +701,9 @@ async def chat(request: ChatRequest):
             "ai_used": "—",
             "error": True,
         }
+
+    # Apply table filter if the user has selected specific tables
+    schema = filter_schema(schema, request.selected_tables)
 
     # Step 2: Generate SQL
     sql = generate_sql(question, schema, request.history, request.ai_config)
